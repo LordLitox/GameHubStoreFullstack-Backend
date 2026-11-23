@@ -14,8 +14,9 @@ WORKDIR /app
 COPY . .
 # -DskipTests: la imagen de despliegue no corre la suite (286 pruebas tardan mucho y
 # no aportan al runtime). El eureka-server NO se compila: en la nube no se usa.
-RUN --mount=type=cache,target=/root/.m2,sharing=locked \
-    mvn -q -B package -DskipTests -pl api-gateway,auth-service,user-service,category-service,product-service,inventory-service,promotion-service,order-service,payment-service,shipping-service,review-service,warranty-service -am
+# Sin --mount=type=cache: esa sintaxis exige BuildKit y el builder de Railway la
+# rechaza ("Dockerfile failed validation"). El caché de Maven no es crítico aquí.
+RUN mvn -q -B package -DskipTests -pl api-gateway,auth-service,user-service,category-service,product-service,inventory-service,promotion-service,order-service,payment-service,shipping-service,review-service,warranty-service -am
 
 # ---------- Etapa 2: runtime ----------
 FROM eclipse-temurin:21-jre
