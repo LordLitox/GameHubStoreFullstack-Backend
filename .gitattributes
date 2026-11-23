@@ -1,0 +1,6 @@
+# El script de arranque corre dentro de un contenedor Linux: si Git lo guarda
+# con finales de línea CRLF, /bin/sh falla con "bad interpreter". Forzamos LF.
+arranque-railway.sh text eol=lf
+Dockerfile.railway text eol=lf
+Dockerfile text eol=lf
+*.sh text eol=lf

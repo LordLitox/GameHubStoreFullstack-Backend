@@ -1,0 +1,46 @@
+# Despliegue "todo en un contenedor" para Railway (plan gratuito).
+#
+# Railway no puede levantar los 12 contenedores del docker-compose.yml como una
+# sola unidad, así que esta receta compila los 12 servicios ejecutables y los
+# arranca como procesos dentro de UN solo contenedor, sin Eureka (el perfil prod
+# usa URLs fijas). Solo api-gateway publica el puerto $PORT; los demás se hablan
+# entre sí por localhost.
+#
+# El andamiaje lo orquesta arranque-railway.sh.
+
+# ---------- Etapa 1: compilar ----------
+FROM maven:3-eclipse-temurin-21 AS build
+WORKDIR /app
+COPY . .
+# -DskipTests: la imagen de despliegue no corre la suite (286 pruebas tardan mucho y
+# no aportan al runtime). El eureka-server NO se compila: en la nube no se usa.
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    mvn -q -B package -DskipTests -pl api-gateway,auth-service,user-service,category-service,product-service,inventory-service,promotion-service,order-service,payment-service,shipping-service,review-service,warranty-service -am
+
+# ---------- Etapa 2: runtime ----------
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+
+# Los 12 .jar, cada uno en su carpeta.
+COPY --from=build /app/api-gateway/target/*.jar        /app/jars/api-gateway.jar
+COPY --from=build /app/auth-service/target/*.jar       /app/jars/auth-service.jar
+COPY --from=build /app/user-service/target/*.jar       /app/jars/user-service.jar
+COPY --from=build /app/category-service/target/*.jar   /app/jars/category-service.jar
+COPY --from=build /app/product-service/target/*.jar    /app/jars/product-service.jar
+COPY --from=build /app/inventory-service/target/*.jar  /app/jars/inventory-service.jar
+COPY --from=build /app/promotion-service/target/*.jar  /app/jars/promotion-service.jar
+COPY --from=build /app/order-service/target/*.jar      /app/jars/order-service.jar
+COPY --from=build /app/payment-service/target/*.jar    /app/jars/payment-service.jar
+COPY --from=build /app/shipping-service/target/*.jar   /app/jars/shipping-service.jar
+COPY --from=build /app/review-service/target/*.jar     /app/jars/review-service.jar
+COPY --from=build /app/warranty-service/target/*.jar   /app/jars/warranty-service.jar
+
+COPY arranque-railway.sh /app/arranque-railway.sh
+RUN chmod +x /app/arranque-railway.sh
+
+# 12 JVM en un contenedor: se reparte la RAM y se limita el heap de cada una.
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=45 -XX:+UseSerialGC -Xss512k -Djava.security.egd=file:/dev/./urandom"
+ENV SPRING_PROFILES_ACTIVE=prod
+
+EXPOSE 8080
+CMD ["/app/arranque-railway.sh"]
