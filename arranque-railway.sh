@@ -7,10 +7,9 @@
 # toma la URL de los demás de variables *_SERVICE_URL que apuntan a
 # http://localhost:<puerto>, porque todos viven en este contenedor.
 #
-# Si un servicio se cae, el contenedor no se reinicia solo (el PID 1 sigue vivo
-# esperando). Railway reinicia el contenedor completo si el PID 1 termina, por
-# eso al final este script espera indefinidamente; para un reinicio limpio basta
-# con "Redeploy" en Railway. Los logs de cada servicio quedan en /app/logs.
+# Los logs de cada servicio van a la consola (stdout) con un prefijo, para que
+# Railway los muestre en "View logs" y se pueda diagnosticar. También quedan en
+# /app/logs/<servicio>.log dentro del contenedor.
 set -eu
 
 JARS=/app/jars
@@ -41,10 +40,13 @@ export SHIPPING_SERVICE_URL="http://localhost:8089"
 export REVIEW_SERVICE_URL="http://localhost:8090"
 export WARRANTY_SERVICE_URL="http://localhost:8091"
 
-# Arranca un servicio con su puerto fijo y lo deja en segundo plano.
+# Arranca un servicio con su puerto fijo. Su salida va a la consola con prefijo
+# (y en paralelo a un archivo), para que sea visible en los logs de Railway.
 arrancar() {
   nombre="$1"; puerto="$2"
-  PORT="$puerto" java -jar "$JARS/$nombre.jar" >"$LOGS/$nombre.log" 2>&1 &
+  PORT="$puerto" java -jar "$JARS/$nombre.jar" 2>&1 \
+    | sed -u "s/^/[$nombre] /" \
+    | tee "$LOGS/$nombre.log" &
   echo "[arranque] $nombre -> :$puerto (pid $!)"
 }
 
@@ -66,6 +68,22 @@ arrancar auth-service       8081
 # El Gateway va al final: cuando arranque, el resto ya está escuchando.
 arrancar api-gateway        8080
 
-echo "[arranque] los 12 servicios están en marcha; logs en $LOGS"
+echo "[arranque] los 12 servicios están en marcha; esperando a que el Gateway responda…"
+
+# Espera activa: informa en el log si el Gateway llega a responder en :8080.
+# Sirve para saber desde los logs de Railway si el contenedor está sano.
+(
+  for i in $(seq 1 60); do
+    sleep 5
+    if java -version >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+      if curl -fs "http://localhost:8080/actuator/health" >/dev/null 2>&1; then
+        echo "[salud] el Gateway responde en :8080 tras $((i*5))s"
+        exit 0
+      fi
+    fi
+  done
+  echo "[salud] el Gateway NO respondió en :8080 tras 300s; revisa los logs de api-gateway" >&2
+) &
+
 # Mantiene vivo el contenedor (si el PID 1 terminara, Railway lo reiniciaría).
 wait
